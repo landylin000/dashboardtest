@@ -504,7 +504,7 @@ function calculateWidgetUnits(widthPx: number, heightPx: number, widget: Widget)
   return { w, h };
 }
 
-function handleResizeMove(event: ResizeMoveEvent, widgetId: string) {
+function handleResizeMove(event: ResizeMoveEvent) {
   event.target.style.width = `${event.rect.width}px`;
   event.target.style.height = `${event.rect.height}px`;
 }
@@ -523,7 +523,7 @@ function initResizables() {
       edges: { right: true, bottom: true },
       allowFrom: '.resize-handle',
       listeners: {
-        move: (event) => handleResizeMove(event as ResizeMoveEvent, widgetId),
+        move: (event) => handleResizeMove(event as ResizeMoveEvent),
         end: (event) => {
           const endEvent = event as ResizeEndEvent;
           const widget = allWidgets.value.find((w) => w.id === widgetId);
