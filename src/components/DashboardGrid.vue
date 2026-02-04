@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * DashboardGrid.vue
- * 佈局核心組件 - 整合 GridStack.js 實現拖拉式佈局
+ * 佈局核心組件 - 使用 Sortable.js 實現拖拉式佈局（無碰撞、釘選不被擠）
  */
 import {
   ref,
@@ -12,7 +12,8 @@ import {
   nextTick,
   type Component,
 } from 'vue';
-import { GridStack, type GridStackNode } from 'gridstack';
+import Sortable from 'sortablejs';
+import interact from 'interactjs';
 import WidgetWrapper from './WidgetWrapper.vue';
 import { useDataStore } from '@/composables/useDataStore';
 import {
@@ -73,10 +74,6 @@ const emit = defineEmits<{
 
 const { dataSources, getDataSource } = useDataStore();
 
-// GridStack instance
-let grid: GridStack | null = null;
-const gridContainer = ref<HTMLElement | null>(null);
-
 // Widget 狀態管理
 const widgetStates = reactive<Map<string, WidgetStatus>>(new Map());
 const widgetData = reactive<Map<string, ChartDataResponse | MetricData | GaugeData | DataGridData | ActivityData | SankeyData | null>>(new Map());
@@ -87,10 +84,13 @@ const dynamicWidgets = ref<Widget[]>([]);
 // 合併 props.widgets 和動態添加的 widgets
 const allWidgets = ref<Widget[]>([]);
 
-// 釘選位置記錄（避免被擠動）
-type LockedPosition = { x: number; y: number; w: number; h: number };
-const lockedPositions = new Map<string, LockedPosition>();
-let isRestoringLocked = false;
+// Sortable 實例
+let sortableInstance: Sortable | null = null;
+const gridContainer = ref<HTMLElement | null>(null);
+type InteractableInstance = ReturnType<typeof interact>;
+const resizableInstances = new Map<string, InteractableInstance>();
+type ResizeMoveEvent = { rect: { width: number; height: number }; target: HTMLElement };
+type ResizeEndEvent = { rect: { width: number; height: number }; target: HTMLElement };
 
 // 圖表組件映射
 const chartComponents: Record<string, Component> = {
@@ -114,27 +114,21 @@ const chartComponents: Record<string, Component> = {
   activity: ActivityWidget,
 };
 
-// Widget 預設標題映射
-const widgetDefaultTitles: Record<string, string> = {
-  line: 'Line Chart',
-  area: 'Area Chart',
-  bar: 'Bar Chart',
-  stepLine: 'Step Line Chart',
-  stackedBar: 'Stacked Bar Chart',
-  scatter: 'Scatter Chart',
-  bubble: 'Bubble Chart',
-  dotPlot: 'Dot Plot',
-  radar: 'Radar Chart',
-  treemap: 'Treemap',
-  sankey: 'Sankey',
-  heatmap: 'Heatmap',
-  radialBar: 'Radial Bar',
-  metric: 'Metric',
-  gauge: 'Gauge',
-  pie: 'Pie Chart',
-  dataGrid: 'Data Grid',
-  activity: 'Activity',
-};
+// 取得 Widget 樣式（基於位置和尺寸計算寬度）
+function getWidgetStyle(widget: Widget) {
+  const colWidth = `calc((100% - ${(props.columns - 1) * props.margin}px) / ${props.columns})`;
+  const widgetWidth = `calc(${widget.w} * ${colWidth} + ${(widget.w - 1) * props.margin}px)`;
+  const widgetHeight = `calc(${widget.h} * ${props.cellHeight}px + ${(widget.h - 1) * props.margin}px)`;
+  const minW = widget.minW || 2;
+  const minH = widget.minH || 2;
+
+  return {
+    width: widgetWidth,
+    height: widgetHeight,
+    minWidth: `calc(${minW} * ${colWidth} + ${(minW - 1) * props.margin}px)`,
+    minHeight: `calc(${minH} * ${props.cellHeight}px + ${(minH - 1) * props.margin}px)`,
+  };
+}
 
 // 取得對應的圖表組件
 function getChartComponent(type: WidgetType): Component {
@@ -430,13 +424,6 @@ async function handleRefresh(widget: Widget) {
 
 // 刪除 Widget
 function handleRemove(widgetId: string) {
-  if (!grid) return;
-
-  const el = gridContainer.value?.querySelector(`[gs-id="${widgetId}"]`);
-  if (el) {
-    grid.removeWidget(el as HTMLElement);
-  }
-
   // 從動態列表移除
   const index = dynamicWidgets.value.findIndex(w => w.id === widgetId);
   if (index > -1) {
@@ -448,74 +435,18 @@ function handleRemove(widgetId: string) {
   // 清理狀態
   widgetStates.delete(widgetId);
   widgetData.delete(widgetId);
-  lockedPositions.delete(widgetId);
 
   updateAllWidgets();
-}
-
-function recordLockedPosition(widgetId: string, el: HTMLElement) {
-  const node = el.gridstackNode;
-  if (!node) return;
-
-  lockedPositions.set(widgetId, {
-    x: node.x ?? 0,
-    y: node.y ?? 0,
-    w: node.w ?? 1,
-    h: node.h ?? 1,
-  });
-}
-
-function restoreLockedWidgets(): boolean {
-  if (!grid || lockedPositions.size === 0) return false;
-
-  let restored = false;
-
-  lockedPositions.forEach((pos, widgetId) => {
-    const el = gridContainer.value?.querySelector(`[gs-id="${widgetId}"]`) as HTMLElement;
-    if (!el) return;
-
-    const node = el.gridstackNode;
-    if (!node) return;
-
-    const moved = node.x !== pos.x || node.y !== pos.y || node.w !== pos.w || node.h !== pos.h;
-    if (moved) {
-      grid.update(el, {
-        x: pos.x,
-        y: pos.y,
-        w: pos.w,
-        h: pos.h,
-        locked: true,
-        noMove: true,
-        noResize: true,
-      });
-      restored = true;
-    }
-  });
-
-  return restored;
+  nextTick(() => refreshResizables());
 }
 
 // 切換 Widget 鎖定狀態
 function handleToggleLock(widgetId: string) {
-  if (!grid) return;
-
   const widget = allWidgets.value.find(w => w.id === widgetId);
   if (!widget) return;
 
-  const el = gridContainer.value?.querySelector(`[gs-id="${widgetId}"]`) as HTMLElement;
-  if (!el) return;
-
-  // 切換鎖定狀態
   widget.locked = !widget.locked;
-
-  // 更新 GridStack
-  if (widget.locked) {
-    grid.update(el, { locked: true, noMove: true, noResize: true });
-    recordLockedPosition(widgetId, el);
-  } else {
-    grid.update(el, { locked: false, noMove: false, noResize: false });
-    lockedPositions.delete(widgetId);
-  }
+  nextTick(() => refreshResizables());
 }
 
 // 更新合併的 widgets 列表
@@ -525,26 +456,9 @@ function updateAllWidgets() {
 
 // 儲存佈局為 JSON
 function saveLayout(): DashboardLayout {
-  if (!grid) return { version: '1.0', timestamp: Date.now(), widgets: [] };
-
-  const items = grid.getGridItems();
-  const layout: Widget[] = items.map((el) => {
-    const node = el.gridstackNode;
-    const widgetId = el.getAttribute('gs-id') || '';
-    const originalWidget = allWidgets.value.find((w) => w.id === widgetId);
-
-    return {
-      id: widgetId,
-      x: node?.x || 0,
-      y: node?.y || 0,
-      w: node?.w || 1,
-      h: node?.h || 1,
-      type: originalWidget?.type || 'line',
-      title: originalWidget?.title || '',
-      apiEndpoint: originalWidget?.apiEndpoint,
-      config: originalWidget?.config,
-    };
-  });
+  const layout: Widget[] = allWidgets.value.map((widget) => ({
+    ...widget,
+  }));
 
   return {
     version: '1.0',
@@ -555,107 +469,115 @@ function saveLayout(): DashboardLayout {
 
 // 取得當前佈局項目
 function getCurrentLayout(): GridStackItem[] {
-  if (!grid) return [];
-  return grid.getGridItems().map((el) => {
-    const node = el.gridstackNode;
-    return {
-      id: el.getAttribute('gs-id') || '',
-      x: node?.x || 0,
-      y: node?.y || 0,
-      w: node?.w || 1,
-      h: node?.h || 1,
-    };
-  });
+  return allWidgets.value.map((widget) => ({
+    id: widget.id,
+    x: widget.x,
+    y: widget.y,
+    w: widget.w,
+    h: widget.h,
+  }));
 }
 
-// 處理外部拖入
-function handleDropped(node: GridStackNode) {
-  const type = (node.el?.getAttribute('data-type') || 'line') as WidgetType;
-  const id = `widget-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+function getColumnWidthPx() {
+  const containerWidth = gridContainer.value?.clientWidth ?? 0;
+  const totalGaps = (props.columns - 1) * props.margin;
+  if (containerWidth <= totalGaps) return 0;
+  return (containerWidth - totalGaps) / props.columns;
+}
 
-  const newWidget: Widget = {
-    id,
-    x: node.x || 0,
-    y: node.y || 0,
-    w: node.w || 4,
-    h: node.h || 4,
-    type,
-    title: widgetDefaultTitles[type] || 'New Widget',
-    config: {},
-  };
-
-  // 更新節點 ID
-  if (node.el) {
-    node.el.setAttribute('gs-id', id);
+function calculateWidgetUnits(widthPx: number, heightPx: number, widget: Widget) {
+  const colWidthPx = getColumnWidthPx();
+  if (colWidthPx <= 0) {
+    return { w: widget.w, h: widget.h };
   }
+  const colUnit = colWidthPx + props.margin;
+  const rowUnit = props.cellHeight + props.margin;
 
-  dynamicWidgets.value.push(newWidget);
-  updateAllWidgets();
+  const minW = widget.minW ?? 1;
+  const minH = widget.minH ?? 2;
+  const maxW = widget.maxW ?? props.columns;
+  const maxH = widget.maxH ?? 100;
 
-  // 載入新 widget 數據
-  loadWidgetData(newWidget);
+  const w = Math.max(minW, Math.min(maxW, Math.round((widthPx + props.margin) / colUnit)));
+  const h = Math.max(minH, Math.min(maxH, Math.round((heightPx + props.margin) / rowUnit)));
 
-  emit('widget-added', newWidget);
+  return { w, h };
 }
 
-// 初始化 GridStack
-function initGrid() {
+function handleResizeMove(event: ResizeMoveEvent, widgetId: string) {
+  event.target.style.width = `${event.rect.width}px`;
+  event.target.style.height = `${event.rect.height}px`;
+}
+
+function initResizables() {
   if (!gridContainer.value) return;
 
-  grid = GridStack.init(
-    {
-      column: props.columns,
-      cellHeight: props.cellHeight,
-      margin: props.margin,
-      animate: true,
-      float: false,
-      acceptWidgets: true,
-      staticGrid: false,
-      handle: '.drag-handle',
-      resizable: {
-        handles: 'se, sw',
+  const elements = Array.from(gridContainer.value.querySelectorAll<HTMLElement>('.grid-item'));
+  elements.forEach((element) => {
+    const widgetId = element.dataset.widgetId;
+    if (!widgetId) return;
+    if (element.dataset.locked !== undefined) return;
+    if (resizableInstances.has(widgetId)) return;
+
+    const interactable = interact(element).resizable({
+      edges: { right: true, bottom: true },
+      allowFrom: '.resize-handle',
+      listeners: {
+        move: (event) => handleResizeMove(event as ResizeMoveEvent, widgetId),
+        end: (event) => {
+          const endEvent = event as ResizeEndEvent;
+          const widget = allWidgets.value.find((w) => w.id === widgetId);
+          if (widget) {
+            const { w, h } = calculateWidgetUnits(endEvent.rect.width, endEvent.rect.height, widget);
+            widget.w = w;
+            widget.h = h;
+          }
+          endEvent.target.style.width = '';
+          endEvent.target.style.height = '';
+          emit('layout-change', getCurrentLayout());
+        },
       },
+    });
+
+    resizableInstances.set(widgetId, interactable);
+  });
+}
+
+function destroyResizables() {
+  resizableInstances.forEach((instance) => instance.unset());
+  resizableInstances.clear();
+}
+
+function refreshResizables() {
+  destroyResizables();
+  initResizables();
+}
+
+// 初始化 Sortable
+function initSortable() {
+  if (!gridContainer.value) return;
+
+  sortableInstance = Sortable.create(gridContainer.value, {
+    handle: '.drag-handle',
+    filter: '[data-locked]', // 鎖定的不可拖
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    onEnd: (evt) => {
+      if (evt.oldIndex === evt.newIndex) return;
+
+      const orderedIds = Array.from(gridContainer.value!.querySelectorAll('[data-widget-id]')).map(
+        (el) => (el as HTMLElement).getAttribute('data-widget-id') || ''
+      );
+
+      // 重新排序 widgets
+      const newOrder = orderedIds
+        .map((id) => allWidgets.value.find((w) => w.id === id))
+        .filter(Boolean) as Widget[];
+
+      allWidgets.value = newOrder;
+
+      emit('layout-change', getCurrentLayout());
     },
-    gridContainer.value
-  );
-
-  // 手動將現有元素註冊為 GridStack widgets
-  const items = gridContainer.value.querySelectorAll('.grid-stack-item');
-  items.forEach((el) => {
-    grid!.makeWidget(el as HTMLElement);
-    
-    // 如果 widget 已經鎖定，應用鎖定狀態
-    const widgetId = el.getAttribute('gs-id');
-    if (widgetId) {
-      const widget = allWidgets.value.find(w => w.id === widgetId);
-      if (widget?.locked) {
-        grid!.update(el as HTMLElement, { locked: true, noMove: true, noResize: true });
-        recordLockedPosition(widgetId, el as HTMLElement);
-      }
-    }
-  });
-
-  // 監聽佈局變動
-  grid.on('change', () => {
-    if (isRestoringLocked) return;
-
-    const restored = restoreLockedWidgets();
-    if (restored) {
-      isRestoringLocked = true;
-      requestAnimationFrame(() => {
-        isRestoringLocked = false;
-      });
-      return;
-    }
-
-    emit('layout-change', getCurrentLayout());
-  });
-
-  // 監聯外部拖入
-  grid.on('dropped', (_event: Event, _previousNode: GridStackNode, newNode: GridStackNode) => {
-    if (newNode) {
-      handleDropped(newNode);
-    }
   });
 }
 
@@ -683,21 +605,22 @@ defineExpose({
     loadWidgetData(target);
     return true;
   },
-  getGrid: () => grid,
 });
 
 onMounted(async () => {
   updateAllWidgets();
   await nextTick();
-  initGrid();
+  initSortable();
+  initResizables();
   await loadAllWidgetsData();
 });
 
 onUnmounted(() => {
-  if (grid) {
-    grid.destroy(false);
-    grid = null;
+  if (sortableInstance) {
+    sortableInstance.destroy();
+    sortableInstance = null;
   }
+  destroyResizables();
 });
 
 // 監聽 widgets 變化
@@ -706,6 +629,7 @@ watch(
   async () => {
     updateAllWidgets();
     await nextTick();
+    refreshResizables();
     await loadAllWidgetsData();
   },
   { deep: true }
@@ -723,25 +647,19 @@ watch(
 <template>
   <div
     ref="gridContainer"
-    class="grid-stack"
+    class="grid-layout"
   >
     <div
       v-for="widget in allWidgets"
       :key="widget.id"
-      class="grid-stack-item"
-      :gs-id="widget.id"
-      :gs-x="widget.x"
-      :gs-y="widget.y"
-      :gs-w="widget.w"
-      :gs-h="widget.h"
-      :gs-min-w="widget.minW || 2"
-      :gs-min-h="widget.minH || 2"
-      :gs-locked="widget.locked"
-      :gs-no-move="widget.locked"
-      :gs-no-resize="widget.locked"
+      :data-widget-id="widget.id"
+      :data-locked="widget.locked || undefined"
+      class="grid-item"
+      :class="{ 'is-locked': widget.locked }"
+      :style="getWidgetStyle(widget)"
     >
       <div
-        class="grid-stack-item-content"
+        class="grid-item-content"
         role="button"
         tabindex="0"
         @click="handleSelect(widget)"
@@ -762,13 +680,63 @@ watch(
           />
         </WidgetWrapper>
       </div>
+      <div
+        v-if="!widget.locked"
+        class="resize-handle"
+        aria-hidden="true"
+      />
     </div>
   </div>
 </template>
 
 <style scoped>
-.grid-stack {
+.grid-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   min-height: 600px;
   background: transparent;
+  padding: 12px;
+}
+
+.grid-item {
+  flex: 0 0 auto;
+  cursor: move;
+  position: relative;
+}
+
+.grid-item.is-locked {
+  cursor: not-allowed;
+  opacity: 0.95;
+}
+
+.grid-item-content {
+  height: 100%;
+  width: 100%;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  border-right: 2px solid rgba(148, 163, 184, 0.9);
+  border-bottom: 2px solid rgba(148, 163, 184, 0.9);
+  border-radius: 2px;
+  cursor: se-resize;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.grid-item:hover .resize-handle {
+  opacity: 1;
+}
+
+.sortable-ghost {
+  opacity: 0.4;
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px dashed #3b82f6;
 }
 </style>
+

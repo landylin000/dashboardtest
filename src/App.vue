@@ -56,7 +56,15 @@ watch(
 
 // 處理佈局變更事件
 function handleLayoutChange(layout: GridStackItem[]) {
-  console.log('Layout changed:', layout);
+  layout.forEach((item) => {
+    const widget = widgets.value.find((w) => w.id === item.id);
+    if (!widget) return;
+
+    widget.x = item.x;
+    widget.y = item.y;
+    widget.w = item.w;
+    widget.h = item.h;
+  });
 }
 
 // 處理 Widget 刷新事件
@@ -123,14 +131,14 @@ function handleCloseUploader() {
 }
 
 // 處理圖表推薦選擇
-function handleChartSelected(recommendation: ChartRecommendation, data: Record<string, unknown>[]) {
+function handleChartSelected(recommendation: ChartRecommendation, data: Record<string, unknown>[], fileName: string) {
   console.log('Chart selected:', recommendation);
   console.log('Data:', data);
 
   // 儲存數據
   uploadedData.value = data;
 
-  const sourceName = `Uploaded Data ${new Date().toLocaleString()}`;
+  const sourceName = fileName || `Uploaded Data ${new Date().toLocaleString()}`;
   const dataSourceId = addDataSource(sourceName, data);
 
   // 計算新 widget 的位置（找到最大 y 值）

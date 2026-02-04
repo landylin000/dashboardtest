@@ -18,14 +18,14 @@ const props = defineProps<Props>();
 const containerRef = ref<HTMLDivElement | null>(null);
 const svgRef = ref<SVGSVGElement | null>(null);
 
-// D3 桑基圖節點和連結類型
-interface D3SankeyNode extends SankeyNode<D3SankeyNode, D3SankeyLink> {
-  name: string;
-}
+// D3 桑基圖節點和連結類型（避免遞迴型別）
+type D3SankeyNode = { name: string } & Partial<SankeyNode<any, any>>;
 
-interface D3SankeyLink extends SankeyLink<D3SankeyNode, D3SankeyLink> {
+type D3SankeyLink = {
   value: number;
-}
+  source: number | D3SankeyNode;
+  target: number | D3SankeyNode;
+} & Partial<SankeyLink<any, any>>;
 
 function renderChart() {
   if (!props.data || !containerRef.value || !svgRef.value) return;
@@ -78,18 +78,18 @@ function renderChart() {
     .nodePadding(10)
     .extent([[0, 0], [innerWidth, innerHeight]]);
 
-  const graph: SankeyGraph<D3SankeyNode, D3SankeyLink> = {
+  const graph = sankeyLayout({
     nodes,
     links: d3Links,
-  };
-
-  sankeyLayout(graph);
+  } as SankeyGraph<D3SankeyNode, D3SankeyLink>);
 
   // 顏色配置
-  const colors = props.config?.colors || [
+  const defaultColors = [
     '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4',
     '#6366f1', '#a855f7', '#ef4444', '#f97316', '#84cc16', '#14b8a6'
   ];
+  const palette = props.config?.colors?.length ? props.config.colors : defaultColors;
+  const getColor = (index: number) => palette[index % palette.length] ?? '#3b82f6';
 
   // 繪製連結
   g.append('g')
@@ -97,7 +97,7 @@ function renderChart() {
     .data(graph.links)
     .join('path')
     .attr('d', sankeyLinkHorizontal())
-    .attr('stroke', (d, i) => colors[i % colors.length])
+    .attr('stroke', (_d, i) => getColor(i))
     .attr('stroke-width', (d) => Math.max(1, d.width || 0))
     .attr('fill', 'none')
     .attr('opacity', 0.5)
@@ -121,7 +121,7 @@ function renderChart() {
     .attr('y', (d) => d.y0!)
     .attr('height', (d) => d.y1! - d.y0!)
     .attr('width', (d) => d.x1! - d.x0!)
-    .attr('fill', (d, i) => colors[i % colors.length])
+    .attr('fill', (_d, i) => getColor(i))
     .attr('opacity', 0.8)
     .on('mouseover', function() {
       d3.select(this).attr('opacity', 1);

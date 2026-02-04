@@ -8,7 +8,7 @@ import { useDataAnalyzer } from '@/composables/useDataAnalyzer';
 import type { ChartRecommendation } from '@/composables/useDataAnalyzer';
 
 const emit = defineEmits<{
-  'chart-selected': [recommendation: ChartRecommendation, data: Record<string, unknown>[]];
+  'chart-selected': [recommendation: ChartRecommendation, data: Record<string, unknown>[], fileName: string];
   close: [];
 }>();
 
@@ -25,6 +25,7 @@ const {
 
 const isDragging = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
+const fileName = ref<string>('');
 
 // 是否有分析結果
 const hasResults = computed(() => analysis.value !== null && analysis.value.rowCount > 0);
@@ -34,6 +35,7 @@ async function handleFileSelect(event: Event) {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   if (file) {
+    fileName.value = file.name;
     await loadFile(file);
   }
 }
@@ -54,6 +56,7 @@ async function handleDrop(event: DragEvent) {
 
   const file = event.dataTransfer?.files[0];
   if (file) {
+    fileName.value = file.name;
     await loadFile(file);
   }
 }
@@ -65,7 +68,7 @@ function triggerFileInput() {
 
 // 選擇推薦圖表
 function selectChart(recommendation: ChartRecommendation) {
-  emit('chart-selected', recommendation, rawData.value);
+  emit('chart-selected', recommendation, rawData.value, fileName.value);
 }
 
 // 取得欄位類型圖示
