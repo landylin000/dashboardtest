@@ -12,6 +12,7 @@ interface Props {
   draggable?: boolean;
   showLive?: boolean;
   removable?: boolean;
+  locked?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -19,11 +20,13 @@ const props = withDefaults(defineProps<Props>(), {
   draggable: true,
   showLive: false,
   removable: true,
+  locked: false,
 });
 
 const emit = defineEmits<{
   refresh: [];
   remove: [];
+  toggleLock: [];
 }>();
 
 const isLoading = computed(() => props.status === 'loading');
@@ -37,6 +40,10 @@ function handleRefresh() {
 function handleRemove() {
   emit('remove');
 }
+
+function handleToggleLock() {
+  emit('toggleLock');
+}
 </script>
 
 <template>
@@ -46,7 +53,7 @@ function handleRemove() {
       <div class="flex items-center gap-3 flex-1">
         <!-- Drag Handle -->
         <div
-          v-if="draggable"
+          v-if="draggable && !locked"
           class="drag-handle gs-drag-handle"
           role="button"
           tabindex="0"
@@ -73,6 +80,27 @@ function handleRemove() {
           </svg>
         </div>
         <h3 class="widget-title">{{ title }}</h3>
+        <!-- Locked Indicator -->
+        <span
+          v-if="locked"
+          class="text-xs text-amber-400 flex items-center gap-1 ml-2"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          已釘選
+        </span>
       </div>
 
       <div class="flex items-center gap-3">
@@ -111,6 +139,46 @@ function handleRemove() {
           >
             <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
             <path d="M21 3v5h-5" />
+          </svg>
+        </button>
+
+        <!-- Lock/Unlock Button -->
+        <button
+          type="button"
+          class="p-1.5 rounded-md text-slate-400 hover:text-amber-400 hover:bg-slate-800/50 transition-colors"
+          :aria-label="locked ? 'Unlock widget' : 'Lock widget'"
+          @click="handleToggleLock"
+        >
+          <svg
+            v-if="locked"
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="text-amber-400"
+          >
+            <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <svg
+            v-else
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 9.9-1" />
           </svg>
         </button>
 
@@ -175,7 +243,7 @@ function handleRemove() {
           <path d="M3 3v18h18" />
           <path d="m19 9-5 5-4-4-3 3" />
         </svg>
-        <span class="text-sm">No data available</span>
+        <span class="text-sm">未配置</span>
       </div>
 
       <!-- Error State -->

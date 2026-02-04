@@ -1,0 +1,6 @@
+[
+  { "name": "基隆站", "parent": null, "value": 0 },
+  { "name": "北區感測組", "parent": "基隆站", "value": 450 },
+  { "name": "南區感測組", "parent": "基隆站", "value": 300 },
+  { "name": "感測器-A1", "parent": "北區感測組", "value": 200 }
+]

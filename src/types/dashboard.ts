@@ -8,6 +8,15 @@ export type WidgetType =
   | 'line'
   | 'area'
   | 'bar'
+  | 'stepLine'
+  | 'stackedBar'
+  | 'scatter'
+  | 'bubble'
+  | 'dotPlot'
+  | 'radar'
+  | 'treemap'
+  | 'sankey'
+  | 'heatmap'
   | 'radialBar'
   | 'metric'
   | 'pie'
@@ -38,10 +47,12 @@ export interface Widget extends WidgetPosition {
   apiEndpoint?: string;
   refreshInterval?: number;  // 自動刷新間隔 (毫秒)
   config?: WidgetConfig;
+  locked?: boolean; // 釘選狀態
 }
 
 /** Widget 配置選項 */
 export interface WidgetConfig {
+  dataSourceId?: string;
   colors?: string[];
   unit?: string;
   decimals?: number;
@@ -49,6 +60,13 @@ export interface WidgetConfig {
   showGrid?: boolean;
   stacked?: boolean;
   sparkline?: boolean;
+  // 數據欄位映射
+  xAxis?: string;
+  yAxis?: string | string[];
+  category?: string;
+  value?: string;
+  source?: string;
+  target?: string;
 }
 
 /** 圖表資料點 */
@@ -71,6 +89,17 @@ export interface ChartDataResponse {
   total?: number;
   trend?: 'up' | 'down' | 'stable';
   trendValue?: number;
+}
+
+/** Sankey Widget 專用資料 */
+export interface SankeyLink {
+  from: string;
+  to: string;
+  value: number;
+}
+
+export interface SankeyData {
+  series: { data: SankeyLink[] }[];
 }
 
 /** Metric Widget 專用資料 */

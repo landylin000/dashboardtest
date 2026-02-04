@@ -1,0 +1,6 @@
+[
+  { "source": "原水進水口", "target": "沉澱池", "value": 1000 },
+  { "source": "沉澱池", "target": "過濾系統", "value": 850 },
+  { "source": "沉澱池", "target": "污泥回收", "value": 150 },
+  { "source": "過濾系統", "target": "配水池", "value": 800 }
+]

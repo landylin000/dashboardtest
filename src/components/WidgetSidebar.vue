@@ -1,139 +1,239 @@
 <script setup lang="ts">
 /**
  * WidgetSidebar.vue
- * 左側 Widget 元件庫 - 可拖拉到主面板
+ * 左側配置面板 - 設定資料來源與圖表
  */
-import { ref, onMounted, onUnmounted } from 'vue';
-import { GridStack } from 'gridstack';
-import type { WidgetType } from '@/types/dashboard';
-
-interface WidgetTemplate {
-  type: WidgetType;
-  name: string;
-  description: string;
-  icon: string;
-  color: string;
-  defaultW: number;
-  defaultH: number;
-}
+import { ref, computed, watch } from 'vue';
+import type { Widget, WidgetType, WidgetConfig } from '@/types/dashboard';
+import { useDataStore } from '@/composables/useDataStore';
+import { useDataAnalyzer } from '@/composables/useDataAnalyzer';
 
 interface Props {
   collapsed?: boolean;
+  selectedWidget?: Widget | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   collapsed: false,
+  selectedWidget: null,
 });
 
 const emit = defineEmits<{
   toggle: [];
+  'upload-data': [];
+  'config-change': [payload: { widgetId: string; config: Partial<WidgetConfig> }];
+  'type-change': [payload: { widgetId: string; type: WidgetType }];
+  'add-widget': [];
 }>();
 
-// Widget 模板定義
-const widgetTemplates: WidgetTemplate[] = [
-  {
-    type: 'line',
-    name: 'Line Chart',
-    description: 'Real-time waveform',
-    icon: 'line',
-    color: '#3b82f6',
-    defaultW: 6,
-    defaultH: 4,
-  },
-  {
-    type: 'bar',
-    name: 'Bar Chart',
-    description: 'Comparison view',
-    icon: 'bar',
-    color: '#8b5cf6',
-    defaultW: 4,
-    defaultH: 4,
-  },
-  {
-    type: 'radialBar',
-    name: 'Gauge',
-    description: 'Status indicator',
-    icon: 'gauge',
-    color: '#22c55e',
-    defaultW: 3,
-    defaultH: 4,
-  },
-  {
-    type: 'dataGrid',
-    name: 'Data Grid',
-    description: 'Log viewer',
-    icon: 'grid',
-    color: '#06b6d4',
-    defaultW: 6,
-    defaultH: 4,
-  },
-  {
-    type: 'metric',
-    name: 'Numeric Hub',
-    description: 'Key metrics',
-    icon: 'hash',
-    color: '#f59e0b',
-    defaultW: 3,
-    defaultH: 2,
-  },
-  {
-    type: 'pie',
-    name: 'Pie Chart',
-    description: 'Distribution',
-    icon: 'pie',
-    color: '#ec4899',
-    defaultW: 4,
-    defaultH: 4,
-  },
-  {
-    type: 'activity',
-    name: 'Activity',
-    description: 'Event timeline',
-    icon: 'activity',
-    color: '#14b8a6',
-    defaultW: 4,
-    defaultH: 4,
-  },
-  {
-    type: 'area',
-    name: 'Stacked',
-    description: 'Multi-series',
-    icon: 'stacked',
-    color: '#6366f1',
-    defaultW: 6,
-    defaultH: 4,
-  },
+const { dataSourceOptions, getDataKeys, getDataSource } = useDataStore();
+const { analyzeData } = useDataAnalyzer();
+
+const selectedSourceId = ref('');
+const selectedXAxis = ref('');
+const selectedYAxis = ref('');
+const selectedValueAxis = ref('');
+const selectedChartType = ref<WidgetType>('line');
+
+const availableKeys = computed(() => getDataKeys(selectedSourceId.value));
+
+const chartTypeLabels: Record<WidgetType, string> = {
+  line: '折線圖',
+  area: '面積圖',
+  bar: '長條圖',
+  stepLine: '階梯線圖',
+  stackedBar: '堆疊長條圖',
+  scatter: '散點圖',
+  bubble: '氣泡圖',
+  dotPlot: '點圖',
+  radar: '雷達圖',
+  heatmap: '熱力圖',
+  treemap: '樹狀圖',
+  sankey: '桑基圖',
+  pie: '圓餅圖',
+  radialBar: '儀表圖',
+  metric: '指標卡',
+  gauge: '儀錶',
+  dataGrid: '資料表格',
+  activity: '活動時間軸',
+};
+
+const allChartTypes: WidgetType[] = [
+  'line',
+  'area',
+  'bar',
+  'stepLine',
+  'stackedBar',
+  'scatter',
+  'bubble',
+  'dotPlot',
+  'radar',
+  'heatmap',
+  'treemap',
+  'sankey',
+  'pie',
+  'radialBar',
+  'metric',
+  'gauge',
+  'dataGrid',
+  'activity',
 ];
 
-const sidebarRef = ref<HTMLElement | null>(null);
+const recommendedChartTypes = computed(() => {
+  const source = getDataSource(selectedSourceId.value);
+  if (!source) return [] as WidgetType[];
+  const analysis = analyzeData(source.rows);
+  const types = analysis.recommendations.map((rec) => rec.type);
+  return Array.from(new Set(types));
+});
 
-// 設置拖拉功能
-function setupDraggable() {
-  if (!sidebarRef.value) return;
+const chartTypeOptions = computed(() => {
+  const recommended = recommendedChartTypes.value;
+  return recommended.length > 0 ? recommended : allChartTypes;
+});
 
-  const items = sidebarRef.value.querySelectorAll('.widget-library-item');
 
-  items.forEach((item) => {
-    const template = widgetTemplates.find(
-      (t) => t.type === item.getAttribute('data-type')
-    );
-    if (!template) return;
+watch(
+  () => props.selectedWidget,
+  (widget) => {
+    if (!widget) {
+      selectedSourceId.value = '';
+      selectedXAxis.value = '';
+      selectedYAxis.value = '';
+      selectedChartType.value = 'line';
+      return;
+    }
 
-    GridStack.setupDragIn(item as HTMLElement, {
-      appendTo: 'body',
-      helper: 'clone',
-    });
+    selectedChartType.value = widget.type;
+    selectedSourceId.value = widget.config?.dataSourceId || '';
+    
+    // 自動填入欄位（如果已配置）
+    selectedXAxis.value =
+      widget.type === 'pie' || widget.type === 'treemap'
+        ? widget.config?.category || ''
+        : widget.type === 'sankey'
+          ? widget.config?.source || widget.config?.xAxis || ''
+          : widget.config?.xAxis || '';
+    const yAxisValue = Array.isArray(widget.config?.yAxis)
+      ? widget.config?.yAxis[0]
+      : widget.config?.yAxis;
+    selectedYAxis.value =
+      widget.type === 'pie' || widget.type === 'treemap'
+        ? widget.config?.value || ''
+        : widget.type === 'sankey'
+          ? widget.config?.target || yAxisValue || ''
+          : widget.type === 'metric' || widget.type === 'gauge' || widget.type === 'radialBar'
+            ? widget.config?.value || yAxisValue || ''
+            : yAxisValue || '';
+    selectedValueAxis.value = widget.config?.value || '';
+  },
+  { immediate: true }
+);
 
-    // 設置拖拉數據
-    (item as HTMLElement).setAttribute('gs-w', String(template.defaultW));
-    (item as HTMLElement).setAttribute('gs-h', String(template.defaultH));
-    (item as HTMLElement).setAttribute('gs-id', `new-${Date.now()}-${template.type}`);
-  });
+// 當資料來源改變時，自動偵測並填入最佳欄位
+watch(
+  () => selectedSourceId.value,
+  (newSourceId) => {
+    if (!newSourceId || !props.selectedWidget) return;
+    
+    // 如果欄位已手動配置，不要覆蓋
+    if (selectedXAxis.value || selectedYAxis.value) return;
+    
+    const source = getDataSource(newSourceId);
+    if (!source) return;
+    
+    const analysis = analyzeData(source.rows);
+    const recommendation = analysis.recommendations.find(r => r.type === selectedChartType.value);
+    
+    if (recommendation) {
+      // 自動填入推薦的欄位配置
+      selectedXAxis.value = recommendation.xAxis || recommendation.category || recommendation.source || '';
+      selectedYAxis.value = 
+        Array.isArray(recommendation.yAxis) 
+          ? recommendation.yAxis[0] || ''
+          : recommendation.yAxis || recommendation.target || '';
+      selectedValueAxis.value = recommendation.value || '';
+    }
+  }
+);
+
+watch(
+  () => selectedChartType.value,
+  (type) => {
+    const widget = props.selectedWidget;
+    if (!widget) return;
+    if (widget.type === type) return;
+    emit('type-change', { widgetId: widget.id, type });
+  }
+);
+
+watch(
+  () => chartTypeOptions.value,
+  (options) => {
+    if (!options.length) return;
+    if (!options.includes(selectedChartType.value)) {
+      selectedChartType.value = options[0]!;
+    }
+  },
+  { immediate: true }
+);
+
+function emitConfigChange() {
+  const widget = props.selectedWidget;
+  if (!widget) return;
+
+  const config: Partial<WidgetConfig> = {
+    dataSourceId: selectedSourceId.value || undefined,
+  };
+
+  if (widget.type === 'pie') {
+    config.category = selectedXAxis.value || undefined;
+    config.value = selectedYAxis.value || undefined;
+  } else if (widget.type === 'treemap') {
+    config.category = selectedXAxis.value || undefined;
+    config.value = selectedYAxis.value || undefined;
+  } else if (widget.type === 'sankey') {
+    config.source = selectedXAxis.value || undefined;
+    config.target = selectedYAxis.value || undefined;
+    config.value = selectedValueAxis.value || undefined;
+  } else if (widget.type === 'metric' || widget.type === 'gauge' || widget.type === 'radialBar') {
+    config.value = selectedYAxis.value || undefined;
+  } else if (widget.type === 'line' || widget.type === 'area' || widget.type === 'bar' || widget.type === 'radar') {
+    config.xAxis = selectedXAxis.value || undefined;
+    config.yAxis = selectedYAxis.value || undefined;
+  }
+
+  emit('config-change', { widgetId: widget.id, config });
 }
 
-onMounted(() => {
-  setupDraggable();
-});
+
+watch(
+  () => selectedSourceId.value,
+  (value) => {
+    if (!value) {
+      selectedXAxis.value = '';
+      selectedYAxis.value = '';
+      emitConfigChange();
+      return;
+    }
+
+    const keys = getDataKeys(value);
+    if (!keys.includes(selectedXAxis.value)) {
+      selectedXAxis.value = '';
+    }
+    if (!keys.includes(selectedYAxis.value)) {
+      selectedYAxis.value = '';
+    }
+    emitConfigChange();
+  }
+);
+
+watch(
+  () => [selectedXAxis.value, selectedYAxis.value],
+  () => {
+    emitConfigChange();
+  }
+);
 
 function handleToggle() {
   emit('toggle');
@@ -142,7 +242,6 @@ function handleToggle() {
 
 <template>
   <aside
-    ref="sidebarRef"
     class="sidebar relative"
     :class="{ collapsed }"
   >
@@ -175,190 +274,165 @@ function handleToggle() {
         v-if="!collapsed"
         class="text-sm font-semibold text-slate-100"
       >
-        Widget Library
+        資料配置
       </h2>
       <p
         v-if="!collapsed"
         class="text-xs text-slate-500 mt-1"
       >
-        Drag widgets to dashboard
+        選取 Widget 後設定資料來源與圖表
       </p>
     </div>
 
-    <!-- Widget List -->
-    <div class="sidebar-content">
-      <div
-        v-for="widget in widgetTemplates"
-        :key="widget.type"
-        class="widget-library-item grid-stack-item"
-        :data-type="widget.type"
-        :gs-w="widget.defaultW"
-        :gs-h="widget.defaultH"
-      >
-        <!-- Icon -->
+    <!-- Configuration Panel -->
+    <div
+      v-if="!collapsed"
+      class="px-3 pb-3"
+    >
+      <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+        <div class="text-xs font-semibold text-slate-200">設定</div>
+        <div class="mt-1 text-xs text-slate-500">選取 Widget 後配置資料來源與欄位</div>
+
         <div
-          class="icon"
-          :style="{ backgroundColor: `${widget.color}20` }"
+          v-if="!selectedWidget"
+          class="mt-3 text-xs text-slate-400"
         >
-          <!-- Line Chart Icon -->
-          <svg
-            v-if="widget.icon === 'line'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <path d="M3 3v18h18" />
-            <path d="m19 9-5 5-4-4-3 3" />
-          </svg>
-
-          <!-- Bar Chart Icon -->
-          <svg
-            v-else-if="widget.icon === 'bar'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <line x1="12" x2="12" y1="20" y2="10" />
-            <line x1="18" x2="18" y1="20" y2="4" />
-            <line x1="6" x2="6" y1="20" y2="14" />
-          </svg>
-
-          <!-- Gauge Icon -->
-          <svg
-            v-else-if="widget.icon === 'gauge'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <path d="m12 14 4-4" />
-            <path d="M3.34 19a10 10 0 1 1 17.32 0" />
-          </svg>
-
-          <!-- Grid Icon -->
-          <svg
-            v-else-if="widget.icon === 'grid'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <rect width="18" height="18" x="3" y="3" rx="2" />
-            <path d="M3 9h18" />
-            <path d="M3 15h18" />
-            <path d="M9 3v18" />
-          </svg>
-
-          <!-- Hash Icon -->
-          <svg
-            v-else-if="widget.icon === 'hash'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <line x1="4" x2="20" y1="9" y2="9" />
-            <line x1="4" x2="20" y1="15" y2="15" />
-            <line x1="10" x2="8" y1="3" y2="21" />
-            <line x1="16" x2="14" y1="3" y2="21" />
-          </svg>
-
-          <!-- Pie Icon -->
-          <svg
-            v-else-if="widget.icon === 'pie'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
-            <path d="M22 12A10 10 0 0 0 12 2v10z" />
-          </svg>
-
-          <!-- Activity Icon -->
-          <svg
-            v-else-if="widget.icon === 'activity'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
-
-          <!-- Stacked Icon -->
-          <svg
-            v-else-if="widget.icon === 'stacked'"
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            :style="{ color: widget.color }"
-          >
-            <path d="m2 12 8 5 8-5" />
-            <path d="m2 17 8 5 8-5" />
-            <path d="m2 7 8 5 8-5-8-5z" />
-          </svg>
+          尚未選取 Widget
         </div>
 
-        <!-- Info -->
-        <div
-          v-if="!collapsed"
-          class="info"
-        >
-          <div class="name">{{ widget.name }}</div>
-          <div class="desc">{{ widget.description }}</div>
+        <div v-else class="mt-3 space-y-3">
+          <div class="text-xs text-slate-400">
+            已選取：<span class="text-slate-200">{{ selectedWidget.title }}</span>
+          </div>
+
+          <label class="block text-xs text-slate-400">圖表類型</label>
+          <select
+            v-model="selectedChartType"
+            class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs text-slate-200"
+          >
+            <option
+              v-for="type in chartTypeOptions"
+              :key="type"
+              :value="type"
+            >
+              {{ chartTypeLabels[type] }}
+            </option>
+          </select>
+
+          <label class="block text-xs text-slate-400">資料來源</label>
+          <select
+            v-model="selectedSourceId"
+            class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs text-slate-200"
+          >
+            <option value="">請選擇資料來源</option>
+            <option
+              v-for="source in dataSourceOptions"
+              :key="source.id"
+              :value="source.id"
+            >
+              {{ source.name }} ({{ source.rowCount }})
+            </option>
+          </select>
+
+          <label class="block text-xs text-slate-400">X 軸 / 類別欄位</label>
+          <select
+            v-model="selectedXAxis"
+            class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs text-slate-200"
+            :disabled="!selectedSourceId"
+          >
+            <option value="">請選擇欄位</option>
+            <option
+              v-for="key in availableKeys"
+              :key="key"
+              :value="key"
+            >
+              {{ key }}
+            </option>
+          </select>
+
+          <label class="block text-xs text-slate-400">Y 軸 / 數值欄位</label>
+          <select
+            v-model="selectedYAxis"
+            class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs text-slate-200"
+            :disabled="!selectedSourceId"
+          >
+            <option value="">請選擇欄位</option>
+            <option
+              v-for="key in availableKeys"
+              :key="key"
+              :value="key"
+            >
+              {{ key }}
+            </option>
+          </select>
+
+          <!-- 桑基圖專用：值欄位 -->
+          <template v-if="selectedChartType === 'sankey'">
+            <label class="block text-xs text-slate-400">權重欄位 (Value)</label>
+            <select
+              v-model="selectedValueAxis"
+              class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs text-slate-200"
+              :disabled="!selectedSourceId"
+            >
+              <option value="">自動偵測</option>
+              <option
+                v-for="key in availableKeys"
+                :key="key"
+                :value="key"
+              >
+                {{ key }}
+              </option>
+            </select>
+          </template>
+
+          <!-- 自動配置提示 -->
+          <div 
+            v-if="selectedSourceId && selectedXAxis && selectedYAxis"
+            class="mt-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2"
+          >
+            <div class="flex items-start gap-2">
+              <svg class="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <div class="text-xs text-emerald-300">
+                <div class="font-medium">已自動配置</div>
+                <div class="text-emerald-400/70 mt-0.5">欄位已根據數據自動選擇，您可以手動調整</div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
+    </div>
+
+    <!-- Upload Data Button -->
+    <div
+      v-if="!collapsed"
+      class="px-3 pb-3"
+    >
+      <button
+        type="button"
+        class="mb-2 w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-medium transition-colors"
+        @click="emit('add-widget')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+        <span>新增空白 Widget</span>
+      </button>
+      <button
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+        @click="emit('upload-data')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" x2="12" y1="3" y2="15" />
+        </svg>
+        <span>上傳資料</span>
+      </button>
     </div>
 
     <!-- Footer -->

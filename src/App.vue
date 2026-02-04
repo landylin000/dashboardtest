@@ -3,112 +3,56 @@
  * App.vue
  * AquaMonitor - Water Quality Dashboard
  */
-import { ref, onMounted, nextTick } from 'vue';
-import { GridStack } from 'gridstack';
+import { ref, onMounted, nextTick, watch } from 'vue';
 import WidgetSidebar from './components/WidgetSidebar.vue';
 import TopNavbar from './components/TopNavbar.vue';
 import DashboardGrid from './components/DashboardGrid.vue';
-import type { Widget, GridStackItem, DashboardLayout } from '@/types/dashboard';
+import DataUploader from './components/DataUploader.vue';
+import type { Widget, GridStackItem, WidgetConfig } from '@/types/dashboard';
+import type { ChartRecommendation } from '@/composables/useDataAnalyzer';
+import { useDataStore } from '@/composables/useDataStore';
 
 // Dashboard Grid 組件引用
 const dashboardRef = ref<InstanceType<typeof DashboardGrid> | null>(null);
-const sidebarRef = ref<InstanceType<typeof WidgetSidebar> | null>(null);
 
 // Sidebar 狀態
 const sidebarCollapsed = ref(false);
 
-// 預設 Widget 配置 - 模擬圖片中的佈局
-const widgets = ref<Widget[]>([
-  // System Overview - Row 1: 4 Metric Cards
-  {
-    id: 'system-uptime',
-    x: 0,
-    y: 0,
-    w: 3,
-    h: 2,
-    type: 'metric',
-    title: 'System Uptime',
-    config: { unit: '%' },
+// Data Uploader Modal 狀態
+const showDataUploader = ref(false);
+
+// 上傳的數據暫存
+const uploadedData = ref<Record<string, unknown>[]>([]);
+
+const selectedWidget = ref<Widget | null>(null);
+const lastAddAt = ref(0);
+
+const { addDataSource } = useDataStore();
+
+
+const WIDGETS_STORAGE_KEY = 'dashboard-widgets';
+
+function loadWidgets(): Widget[] {
+  try {
+    const raw = localStorage.getItem(WIDGETS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Widget[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+const widgets = ref<Widget[]>(loadWidgets());
+
+watch(
+  () => widgets.value,
+  (value) => {
+    localStorage.setItem(WIDGETS_STORAGE_KEY, JSON.stringify(value));
   },
-  {
-    id: 'data-throughput',
-    x: 3,
-    y: 0,
-    w: 3,
-    h: 2,
-    type: 'metric',
-    title: 'Data Throughput',
-    config: { unit: 'GB/s' },
-  },
-  {
-    id: 'avg-latency',
-    x: 6,
-    y: 0,
-    w: 3,
-    h: 2,
-    type: 'metric',
-    title: 'Avg Latency',
-    config: { unit: 'ms' },
-  },
-  {
-    id: 'active-alerts',
-    x: 9,
-    y: 0,
-    w: 3,
-    h: 2,
-    type: 'metric',
-    title: 'Active Alerts',
-    config: {},
-  },
-  // Row 2: pH Chart + Water Pressure Gauge
-  {
-    id: 'ph-dissolved-oxygen',
-    x: 0,
-    y: 2,
-    w: 8,
-    h: 5,
-    type: 'area',
-    title: 'pH & Dissolved Oxygen',
-    config: {
-      colors: ['#3b82f6', '#22c55e'],
-    },
-  },
-  {
-    id: 'water-pressure',
-    x: 8,
-    y: 2,
-    w: 4,
-    h: 5,
-    type: 'gauge',
-    title: 'Water Pressure',
-    config: {
-      colors: ['#22c55e', '#86efac'],
-    },
-  },
-  // Row 3: Sensor Readings + System Logs
-  {
-    id: 'sensor-readings',
-    x: 0,
-    y: 7,
-    w: 6,
-    h: 4,
-    type: 'bar',
-    title: 'Sensor Readings',
-    config: {
-      colors: ['#06b6d4', '#22d3ee'],
-    },
-  },
-  {
-    id: 'system-logs',
-    x: 6,
-    y: 7,
-    w: 6,
-    h: 4,
-    type: 'dataGrid',
-    title: 'System Logs',
-    config: {},
-  },
-]);
+  { deep: true }
+);
 
 // 處理佈局變更事件
 function handleLayoutChange(layout: GridStackItem[]) {
@@ -125,19 +69,175 @@ function handleWidgetAdded(widget: Widget) {
   console.log('Widget added:', widget);
 }
 
+function handleWidgetRemoved(widgetId: string) {
+  const index = widgets.value.findIndex((w) => w.id === widgetId);
+  if (index > -1) {
+    widgets.value.splice(index, 1);
+  }
+
+  if (selectedWidget.value?.id === widgetId) {
+    selectedWidget.value = null;
+  }
+}
+
+function handleAddEmptyWidget() {
+  const now = Date.now();
+  if (now - lastAddAt.value < 300) return;
+  lastAddAt.value = now;
+
+  const name = window.prompt('請輸入 Widget 名稱', '新 Widget');
+  if (!name) return;
+
+  const maxY = widgets.value.reduce((max, w) => Math.max(max, w.y + w.h), 0);
+  const newWidget: Widget = {
+    id: `empty-${Date.now()}`,
+    x: 0,
+    y: maxY,
+    w: 6,
+    h: 4,
+    type: 'line',
+    title: name,
+    config: {},
+  };
+  widgets.value.push(newWidget);
+  selectedWidget.value = newWidget;
+}
+
+function handleWidgetSelected(widget: Widget) {
+  selectedWidget.value = widget;
+}
+
 // 切換側邊欄
 function handleSidebarToggle() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
 }
 
-// 儲存當前佈局
-function handleSaveLayout() {
-  if (!dashboardRef.value) return;
-  const layout: DashboardLayout = dashboardRef.value.saveLayout();
-  console.log('Saved layout:', JSON.stringify(layout, null, 2));
-  localStorage.setItem('dashboard-layout', JSON.stringify(layout));
-  alert('Layout saved!');
+// 開啟數據上傳對話框
+function handleUploadData() {
+  showDataUploader.value = true;
 }
+
+// 關閉數據上傳對話框
+function handleCloseUploader() {
+  showDataUploader.value = false;
+}
+
+// 處理圖表推薦選擇
+function handleChartSelected(recommendation: ChartRecommendation, data: Record<string, unknown>[]) {
+  console.log('Chart selected:', recommendation);
+  console.log('Data:', data);
+
+  // 儲存數據
+  uploadedData.value = data;
+
+  const sourceName = `Uploaded Data ${new Date().toLocaleString()}`;
+  const dataSourceId = addDataSource(sourceName, data);
+
+  // 計算新 widget 的位置（找到最大 y 值）
+  const maxY = widgets.value.reduce((max, w) => Math.max(max, w.y + w.h), 0);
+
+  // 根據圖表類型決定預設尺寸
+  const sizeMap: Record<string, { w: number; h: number }> = {
+    line: { w: 6, h: 4 },
+    area: { w: 6, h: 4 },
+    bar: { w: 6, h: 4 },
+    pie: { w: 4, h: 4 },
+    radialBar: { w: 3, h: 4 },
+    metric: { w: 3, h: 2 },
+    dataGrid: { w: 6, h: 4 },
+    activity: { w: 4, h: 4 },
+    sankey: { w: 8, h: 5 },
+    treemap: { w: 6, h: 5 },
+    radar: { w: 5, h: 5 },
+  };
+
+  const size = sizeMap[recommendation.type] || { w: 4, h: 4 };
+
+  // 創建新的 widget
+  const newWidget: Widget = {
+    id: `uploaded-${Date.now()}`,
+    x: 0,
+    y: maxY,
+    w: size.w,
+    h: size.h,
+    type: recommendation.type,
+    title: recommendation.title,
+    config: {
+      dataSourceId,
+      // 傳遞欄位映射資訊
+      xAxis: recommendation.xAxis,
+      yAxis: recommendation.yAxis,
+      category: recommendation.category,
+      value: recommendation.value,
+      source: recommendation.source,
+      target: recommendation.target,
+    },
+    // 附加原始數據（實際應用中應存在 store 或通過 API）
+  };
+
+  // 添加到 widgets 列表
+  widgets.value.push(newWidget);
+
+  // 關閉對話框
+  showDataUploader.value = false;
+
+  console.log('New widget created:', newWidget);
+}
+
+function handleConfigChange(payload: { widgetId: string; config: Partial<WidgetConfig> }) {
+  const { widgetId, config } = payload;
+
+  const index = widgets.value.findIndex((w) => w.id === widgetId);
+  if (index > -1) {
+    const target = widgets.value[index]!;
+    const updated = {
+      ...target,
+      config: {
+        ...target.config,
+        ...config,
+      },
+    } as Widget;
+    widgets.value.splice(index, 1, updated);
+    selectedWidget.value = updated;
+    return;
+  }
+
+  const updated = dashboardRef.value?.updateWidgetConfig?.(widgetId, config);
+  if (updated && selectedWidget.value?.id === widgetId) {
+    selectedWidget.value = {
+      ...selectedWidget.value,
+      config: {
+        ...selectedWidget.value.config,
+        ...config,
+      },
+    };
+  }
+}
+
+function handleTypeChange(payload: { widgetId: string; type: Widget['type'] }) {
+  const { widgetId, type } = payload;
+
+  const index = widgets.value.findIndex((w) => w.id === widgetId);
+  if (index > -1) {
+    const target = widgets.value[index];
+    const updated = {
+      ...target,
+      type,
+    } as Widget;
+    widgets.value.splice(index, 1, updated);
+    selectedWidget.value = updated;
+    return;
+  }
+
+  const updated = dashboardRef.value?.updateWidgetType?.(widgetId, type);
+  if (updated && selectedWidget.value?.id === widgetId) {
+    selectedWidget.value = {
+      ...selectedWidget.value,
+      type,
+    };
+  }
+}
+
 
 // 全螢幕切換
 function handleFullscreen() {
@@ -148,18 +248,12 @@ function handleFullscreen() {
   }
 }
 
+
 // 設定側邊欄拖拉
 onMounted(async () => {
   await nextTick();
 
-  // 設置外部拖拉源
-  const sidebarItems = document.querySelectorAll('.widget-library-item');
-  sidebarItems.forEach((item) => {
-    GridStack.setupDragIn(item as HTMLElement, {
-      appendTo: 'body',
-      helper: 'clone',
-    });
-  });
+  // GridStack.setupDragIn 已在 WidgetSidebar 中處理
 });
 </script>
 
@@ -169,7 +263,12 @@ onMounted(async () => {
     <WidgetSidebar
       ref="sidebarRef"
       :collapsed="sidebarCollapsed"
+      :selected-widget="selectedWidget"
       @toggle="handleSidebarToggle"
+      @add-widget="handleAddEmptyWidget"
+      @upload-data="handleUploadData"
+      @config-change="handleConfigChange"
+      @type-change="handleTypeChange"
     />
 
     <!-- Main Content -->
@@ -198,8 +297,56 @@ onMounted(async () => {
           @layout-change="handleLayoutChange"
           @widget-refresh="handleWidgetRefresh"
           @widget-added="handleWidgetAdded"
+          @widget-selected="handleWidgetSelected"
+          @widget-removed="handleWidgetRemoved"
         />
       </main>
     </div>
+
+    <!-- Data Uploader Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showDataUploader"
+          class="fixed inset-0 z-50 flex items-center justify-center"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            @click="handleCloseUploader"
+          />
+
+          <!-- Modal Content -->
+          <div class="relative w-full max-w-md mx-4">
+            <DataUploader
+              @chart-selected="handleChartSelected"
+              @close="handleCloseUploader"
+            />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style>
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active .relative,
+.modal-leave-active .relative {
+  transition: transform 0.2s ease;
+}
+
+.modal-enter-from .relative,
+.modal-leave-to .relative {
+  transform: scale(0.95) translateY(-10px);
+}
+</style>
