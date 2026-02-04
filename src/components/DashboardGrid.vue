@@ -12,7 +12,7 @@ import {
   nextTick,
   type Component,
 } from 'vue';
-import { GridStack, type GridStackNode, type GridStackWidget } from 'gridstack';
+import { GridStack, type GridStackNode } from 'gridstack';
 import WidgetWrapper from './WidgetWrapper.vue';
 import {
   LineChart,
@@ -364,7 +364,7 @@ function getCurrentLayout(): GridStackItem[] {
 // 處理外部拖入
 function handleDropped(node: GridStackNode) {
   const type = (node.el?.getAttribute('data-type') || 'line') as WidgetType;
-  const id = `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const id = `widget-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 
   const newWidget: Widget = {
     id,
@@ -403,9 +403,8 @@ function initGrid() {
       animate: true,
       float: false,
       acceptWidgets: true,
-      draggable: {
-        handle: '.gs-drag-handle',
-      },
+      staticGrid: false,
+      handleClass: 'widget-header',
       resizable: {
         handles: 'se, sw',
       },
@@ -413,12 +412,18 @@ function initGrid() {
     gridContainer.value
   );
 
+  // 手動將現有元素註冊為 GridStack widgets
+  const items = gridContainer.value.querySelectorAll('.grid-stack-item');
+  items.forEach((el) => {
+    grid!.makeWidget(el as HTMLElement);
+  });
+
   // 監聽佈局變動
   grid.on('change', () => {
     emit('layout-change', getCurrentLayout());
   });
 
-  // 監聽外部拖入
+  // 監聯外部拖入
   grid.on('dropped', (_event: Event, _previousNode: GridStackNode, newNode: GridStackNode) => {
     if (newNode) {
       handleDropped(newNode);

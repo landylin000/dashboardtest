@@ -43,12 +43,13 @@ function handleRemove() {
   <div class="widget-card">
     <!-- Header -->
     <header class="widget-header">
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 flex-1">
         <!-- Drag Handle -->
-        <button
+        <div
           v-if="draggable"
-          type="button"
           class="drag-handle gs-drag-handle"
+          role="button"
+          tabindex="0"
           aria-label="Drag to move"
         >
           <svg
@@ -61,6 +62,7 @@ function handleRemove() {
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            class="pointer-events-none"
           >
             <circle cx="9" cy="5" r="1" fill="currentColor" />
             <circle cx="9" cy="12" r="1" fill="currentColor" />
@@ -69,7 +71,7 @@ function handleRemove() {
             <circle cx="15" cy="12" r="1" fill="currentColor" />
             <circle cx="15" cy="19" r="1" fill="currentColor" />
           </svg>
-        </button>
+        </div>
         <h3 class="widget-title">{{ title }}</h3>
       </div>
 

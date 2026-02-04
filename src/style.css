@@ -138,6 +138,12 @@ body {
 
 .widget-header {
   @apply flex items-center justify-between px-4 py-3 border-b border-slate-700/50;
+  cursor: grab;
+  user-select: none;
+}
+
+.widget-header:active {
+  cursor: grabbing;
 }
 
 .widget-title {
@@ -150,7 +156,26 @@ body {
 
 /* Drag Handle */
 .drag-handle {
-  @apply cursor-move text-slate-500 hover:text-slate-300 transition-colors;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  cursor: grab;
+  color: #64748b;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  user-select: none;
+  touch-action: none;
+}
+
+.drag-handle:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 /* Live Badge */
