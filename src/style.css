@@ -1,0 +1,256 @@
+/* GridStack Styles - Must be first */
+@import 'gridstack/dist/gridstack.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #0f172a;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Layout */
+.dashboard-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 56px;
+  min-width: 56px;
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* Widget Library Item */
+.widget-library-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  cursor: grab;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.widget-library-item:hover {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.widget-library-item:active {
+  cursor: grabbing;
+}
+
+.widget-library-item .icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.widget-library-item .info {
+  flex: 1;
+  min-width: 0;
+}
+
+.widget-library-item .name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #f1f5f9;
+}
+
+.widget-library-item .desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* GridStack Custom Theme */
+.gs-item-content {
+  background: transparent !important;
+}
+
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
+  background: transparent;
+  overflow: visible;
+}
+
+.grid-stack-item {
+  transition: none;
+}
+
+.grid-stack-item.ui-draggable-dragging {
+  z-index: 100;
+}
+
+.grid-stack-placeholder > .placeholder-content {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+  border: 2px dashed #3b82f6 !important;
+  border-radius: 8px;
+}
+
+/* Widget Card Styles */
+.widget-card {
+  @apply bg-slate-900/90 backdrop-blur-sm border border-slate-700/50 rounded-lg h-full flex flex-col;
+}
+
+.widget-header {
+  @apply flex items-center justify-between px-4 py-3 border-b border-slate-700/50;
+}
+
+.widget-title {
+  @apply text-sm font-medium text-slate-200;
+}
+
+.widget-content {
+  @apply flex-1 p-4 overflow-hidden;
+}
+
+/* Drag Handle */
+.drag-handle {
+  @apply cursor-move text-slate-500 hover:text-slate-300 transition-colors;
+}
+
+/* Live Badge */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #22c55e;
+}
+
+.live-badge::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* Metric Card */
+.metric-card {
+  @apply bg-slate-800/50 rounded-lg p-4;
+}
+
+/* ApexCharts Custom Theme Override */
+.apexcharts-canvas {
+  background: transparent !important;
+}
+
+.apexcharts-tooltip {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3) !important;
+}
+
+.apexcharts-tooltip-title {
+  background: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
+/* Status Colors */
+.status-normal { color: #22c55e; }
+.status-warning { color: #f59e0b; }
+.status-danger { color: #ef4444; }
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Loading Animation */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* Sidebar Toggle Button */
+.sidebar-toggle {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.15s ease;
+}
+
+.sidebar-toggle:hover {
+  background: #334155;
+}
