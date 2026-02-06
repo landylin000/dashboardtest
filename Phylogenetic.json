@@ -1,0 +1,28 @@
+{
+  "name": "10902 SNPs",
+  "children": [
+    {
+      "name": "KonaBay",
+      "children": [
+        { "name": "opptyshrimp001", "value": 100 },
+        { "name": "opptyshrimp002", "value": 100 },
+        { "name": "opptyshrimp003", "value": 100 }
+      ]
+    },
+    {
+      "name": "SyaquaB",
+      "children": [
+        { "name": "opptyshrimp127", "color": "red" },
+        { "name": "opptyshrimp128", "color": "red" },
+        { "name": "opptyshrimp129", "color": "red" }
+      ]
+    },
+    {
+      "name": "CP",
+      "children": [
+        { "name": "opptyshrimp085", "color": "orange" },
+        { "name": "opptyshrimp086", "color": "orange" }
+      ]
+    }
+  ]
+}

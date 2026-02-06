@@ -3,11 +3,13 @@
  * WidgetWrapper.vue
  * 通用 Widget 外殼組件 - 具備標題列、拖拉手柄、刷新按鈕、LIVE 標籤
  */
-import { computed } from 'vue';
+import { computed, ref, nextTick } from 'vue';
+import html2canvas from 'html2canvas';
 import type { WidgetStatus } from '@/types/dashboard';
 
 interface Props {
   title: string;
+  widgetId?: string;
   status?: WidgetStatus;
   draggable?: boolean;
   showLive?: boolean;
@@ -17,16 +19,24 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   status: 'idle',
+  widgetId: 'widget',
   draggable: true,
   showLive: false,
   removable: true,
   locked: false,
 });
 
+const widgetRef = ref<HTMLElement | null>(null);
+const isDownloading = ref(false);
+const isEditing = ref(false);
+const editingTitle = ref('');
+const titleInputRef = ref<HTMLInputElement | null>(null);
+
 const emit = defineEmits<{
   refresh: [];
   remove: [];
   toggleLock: [];
+  rename: [newTitle: string];
 }>();
 
 const isLoading = computed(() => props.status === 'loading');
@@ -44,10 +54,49 @@ function handleRemove() {
 function handleToggleLock() {
   emit('toggleLock');
 }
+
+function startEditing() {
+  editingTitle.value = props.title;
+  isEditing.value = true;
+  nextTick(() => {
+    titleInputRef.value?.focus();
+    titleInputRef.value?.select();
+  });
+}
+
+function confirmRename() {
+  const newTitle = editingTitle.value.trim();
+  if (newTitle && newTitle !== props.title) {
+    emit('rename', newTitle);
+  }
+  isEditing.value = false;
+}
+
+function cancelEditing() {
+  isEditing.value = false;
+}
+
+async function handleDownload() {
+  if (!widgetRef.value || isDownloading.value) return;
+
+  isDownloading.value = true;
+  try {
+    const canvas = await html2canvas(widgetRef.value, {
+      backgroundColor: '#0f172a',
+      scale: 2,
+    });
+    const link = document.createElement('a');
+    link.download = `${props.widgetId}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } finally {
+    isDownloading.value = false;
+  }
+}
 </script>
 
 <template>
-  <div class="widget-card">
+  <div ref="widgetRef" class="widget-card">
     <!-- Header -->
     <header class="widget-header">
       <div class="flex items-center gap-3 flex-1">
@@ -79,7 +128,24 @@ function handleToggleLock() {
             <circle cx="15" cy="19" r="1" fill="currentColor" />
           </svg>
         </div>
-        <h3 class="widget-title">{{ title }}</h3>
+        <input
+          v-if="isEditing"
+          ref="titleInputRef"
+          v-model="editingTitle"
+          type="text"
+          class="widget-title-input"
+          @blur="confirmRename"
+          @keydown.enter="confirmRename"
+          @keydown.escape="cancelEditing"
+        />
+        <h3
+          v-else
+          class="widget-title"
+          @dblclick="startEditing"
+          title="雙擊編輯名稱"
+        >
+          {{ title }}
+        </h3>
         <!-- Locked Indicator -->
         <span
           v-if="locked"
@@ -117,6 +183,46 @@ function handleToggleLock() {
           v-if="isLoading"
           class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"
         />
+
+        <!-- Download Button -->
+        <button
+          type="button"
+          class="p-1.5 rounded-md text-slate-400 hover:text-blue-400 hover:bg-slate-800/50 transition-colors disabled:opacity-50"
+          :disabled="isDownloading"
+          aria-label="Download as image"
+          @click="handleDownload"
+        >
+          <svg
+            v-if="isDownloading"
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            class="animate-spin"
+          >
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+            <path d="M12 2a10 10 0 0 1 10 10" />
+          </svg>
+          <svg
+            v-else
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+        </button>
 
         <!-- Refresh Button -->
         <button
@@ -296,5 +402,23 @@ function handleToggleLock() {
 
 .border-3 {
   border-width: 3px;
+}
+
+.widget-title-input {
+  background: transparent;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  outline: none;
+  min-width: 100px;
+  max-width: 200px;
+}
+
+.widget-title-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 </style>

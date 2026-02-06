@@ -56,6 +56,9 @@ const chartTypeLabels: Record<WidgetType, string> = {
   gauge: '儀錶',
   dataGrid: '資料表格',
   activity: '活動時間軸',
+  phylogenetic: '系統發生樹',
+  admixture: '遺傳結構圖',
+  boxPlot: '盒鬚圖',
 };
 
 const allChartTypes: WidgetType[] = [
@@ -77,6 +80,9 @@ const allChartTypes: WidgetType[] = [
   'gauge',
   'dataGrid',
   'activity',
+  'phylogenetic',
+  'admixture',
+  'boxPlot',
 ];
 
 const recommendedChartTypes = computed(() => {

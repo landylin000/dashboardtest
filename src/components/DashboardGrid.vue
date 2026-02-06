@@ -35,6 +35,9 @@ import {
   PieChart,
   DataGridWidget,
   ActivityWidget,
+  PhylogeneticTree,
+  AdmixturePlot,
+  BoxPlotChart,
 } from './charts';
 import type {
   Widget,
@@ -50,6 +53,13 @@ import type {
   GridStackItem,
   WidgetConfig,
 } from '@/types/dashboard';
+
+// 通用 JSON 物件類型
+type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
+type JsonObject = { [key: string]: JsonValue };
+type JsonArray = JsonValue[];
+
+type WidgetDataType = ChartDataResponse | MetricData | GaugeData | DataGridData | ActivityData | SankeyData | JsonObject | null;
 
 interface Props {
   widgets: Widget[];
@@ -76,7 +86,7 @@ const { dataSources, getDataSource } = useDataStore();
 
 // Widget 狀態管理
 const widgetStates = reactive<Map<string, WidgetStatus>>(new Map());
-const widgetData = reactive<Map<string, ChartDataResponse | MetricData | GaugeData | DataGridData | ActivityData | SankeyData | null>>(new Map());
+const widgetData = reactive<Map<string, WidgetDataType>>(new Map());
 
 // 動態 widgets 列表
 const dynamicWidgets = ref<Widget[]>([]);
@@ -112,6 +122,9 @@ const chartComponents: Record<string, Component> = {
   pie: PieChart,
   dataGrid: DataGridWidget,
   activity: ActivityWidget,
+  phylogenetic: PhylogeneticTree,
+  admixture: AdmixturePlot,
+  boxPlot: BoxPlotChart,
 };
 
 // 取得 Widget 樣式（基於位置和尺寸計算寬度）
@@ -141,7 +154,7 @@ function getWidgetStatus(id: string): WidgetStatus {
 }
 
 // 取得 Widget 數據
-function getWidgetData(id: string): ChartDataResponse | MetricData | GaugeData | DataGridData | ActivityData | SankeyData | null {
+function getWidgetData(id: string): WidgetDataType {
   return widgetData.get(id) || null;
 }
 
@@ -151,7 +164,7 @@ function setWidgetStatus(id: string, status: WidgetStatus) {
 }
 
 // 設定 Widget 數據
-function setWidgetData(id: string, data: ChartDataResponse | MetricData | GaugeData | DataGridData | ActivityData | SankeyData | null) {
+function setWidgetData(id: string, data: WidgetDataType) {
   widgetData.set(id, data);
 }
 
@@ -166,6 +179,12 @@ function normalizeNumber(value: unknown) {
 
 function isWidgetConfigured(widget: Widget) {
   const config = widget.config;
+
+  // phylogenetic, admixture, boxPlot 需要數據源
+  if (widget.type === 'phylogenetic' || widget.type === 'admixture' || widget.type === 'boxPlot') {
+    return Boolean(config?.dataSourceId);
+  }
+
   if (!config?.dataSourceId) return false;
 
   switch (widget.type) {
@@ -206,6 +225,15 @@ function buildDataFromSource(widget: Widget) {
   if (!source || source.rows.length === 0) return null;
 
   const rows = source.rows;
+
+  // 樹狀圖類型 (phylogenetic, admixture, boxPlot) - 使用第一行作為樹狀數據
+  if (widget.type === 'phylogenetic' || widget.type === 'admixture' || widget.type === 'boxPlot') {
+    const firstRow = rows[0];
+    if (firstRow && typeof firstRow === 'object') {
+      return firstRow as any;
+    }
+    return null;
+  }
 
   switch (widget.type) {
     case 'line':
@@ -449,6 +477,15 @@ function handleToggleLock(widgetId: string) {
   nextTick(() => refreshResizables());
 }
 
+// 重新命名 Widget
+function handleRename(widgetId: string, newTitle: string) {
+  const widget = allWidgets.value.find(w => w.id === widgetId);
+  if (!widget) return;
+
+  widget.title = newTitle;
+  emit('layout-change', getCurrentLayout());
+}
+
 // 更新合併的 widgets 列表
 function updateAllWidgets() {
   allWidgets.value = [...props.widgets, ...dynamicWidgets.value];
@@ -666,12 +703,14 @@ watch(
       >
         <WidgetWrapper
           :title="widget.title"
+          :widget-id="widget.id"
           :status="getWidgetStatus(widget.id)"
           :locked="widget.locked"
           :show-live="widget.type === 'line' || widget.type === 'area' || widget.type === 'dataGrid'"
           @refresh="handleRefresh(widget)"
           @remove="handleRemove(widget.id)"
           @toggle-lock="handleToggleLock(widget.id)"
+          @rename="handleRename(widget.id, $event)"
         >
           <component
             :is="getChartComponent(widget.type)"

@@ -22,7 +22,10 @@ export type WidgetType =
   | 'pie'
   | 'dataGrid'
   | 'activity'
-  | 'gauge';
+  | 'gauge'
+  | 'phylogenetic'
+  | 'admixture'
+  | 'boxPlot';
 
 /** Widget 狀態 */
 export type WidgetStatus = 'idle' | 'loading' | 'success' | 'error' | 'empty';

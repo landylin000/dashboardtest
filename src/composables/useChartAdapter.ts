@@ -668,6 +668,12 @@ export function getChartOptions(
       return getRadialBarChartOptions(data as ChartDataResponse, config);
     case 'metric':
       return null; // Metric 使用專屬組件，不需要 ApexCharts
+    case 'phylogenetic':
+      return null; // PhylogeneticTree 使用自訂 SVG 繪製
+    case 'admixture':
+      return null; // AdmixturePlot 使用專屬組件配置
+    case 'boxPlot':
+      return null; // BoxPlotChart 使用專屬組件配置
     default:
       return getLineChartOptions(data as ChartDataResponse, config);
   }

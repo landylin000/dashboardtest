@@ -18,3 +18,6 @@ export { default as GaugeChart } from './GaugeChart.vue';
 export { default as PieChart } from './PieChart.vue';
 export { default as DataGridWidget } from './DataGridWidget.vue';
 export { default as ActivityWidget } from './ActivityWidget.vue';
+export { default as PhylogeneticTree } from './PhylogeneticTree.vue';
+export { default as AdmixturePlot } from './AdmixturePlot.vue';
+export { default as BoxPlotChart } from './BoxPlotChart.vue';

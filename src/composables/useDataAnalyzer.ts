@@ -40,6 +40,280 @@ export interface DataAnalysis {
   rowCount: number;
   fieldProfiles: FieldProfile[];
   recommendations: ChartRecommendation[];
+  isTreeStructure?: boolean;
+}
+
+/**
+ * 檢測是否為樹狀結構的 JSON
+ */
+function isTreeStructure(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return false;
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  // 檢查是否有名稱欄位
+  const hasName = ['name', 'label', 'id', 'title', 'key', 'text'].some(
+    (key) => typeof obj[key] === 'string'
+  );
+
+  // 檢查是否有子節點欄位（陣列類型）
+  const childrenKey = ['children', 'nodes', 'items', 'branches', 'subtree'].find(
+    (key) => Array.isArray(obj[key])
+  );
+
+  if (hasName && childrenKey) {
+    const children = obj[childrenKey] as unknown[];
+    // 檢查子節點是否也是樹狀結構
+    if (children.length > 0) {
+      // 至少有一個子節點也是物件（可能有自己的子節點）
+      return children.some((child) => {
+        if (typeof child === 'object' && child !== null) {
+          const childObj = child as Record<string, unknown>;
+          const childHasName = ['name', 'label', 'id', 'title', 'key', 'text'].some(
+            (key) => typeof childObj[key] === 'string'
+          );
+          return childHasName;
+        }
+        return false;
+      });
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 計算樹的深度和節點數
+ */
+function analyzeTreeStructure(data: unknown): { depth: number; nodeCount: number; leafCount: number } {
+  let nodeCount = 0;
+  let leafCount = 0;
+  let maxDepth = 0;
+
+  function traverse(node: unknown, depth: number): void {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+
+    nodeCount++;
+    maxDepth = Math.max(maxDepth, depth);
+
+    const obj = node as Record<string, unknown>;
+    const childrenKey = ['children', 'nodes', 'items', 'branches', 'subtree'].find(
+      (key) => Array.isArray(obj[key])
+    );
+
+    if (childrenKey) {
+      const children = obj[childrenKey] as unknown[];
+      if (children.length === 0) {
+        leafCount++;
+      } else {
+        children.forEach((child) => traverse(child, depth + 1));
+      }
+    } else {
+      leafCount++;
+    }
+  }
+
+  traverse(data, 0);
+  return { depth: maxDepth, nodeCount, leafCount };
+}
+
+/**
+ * 檢測是否為盒鬚圖結構的 JSON
+ * 格式: [{ name, type: 'boxPlot', data: [{ x, y: [min, Q1, median, Q3, max] }] }]
+ * 或: [{ x, y: [5個數值] }]
+ */
+function isBoxPlotStructure(data: unknown): boolean {
+  if (!Array.isArray(data) || data.length === 0) {
+    return false;
+  }
+
+  const firstItem = data[0] as Record<string, unknown>;
+
+  // 格式 1: ApexCharts series 格式 { name, type: 'boxPlot', data: [...] }
+  if (firstItem.type === 'boxPlot' && Array.isArray(firstItem.data)) {
+    const boxData = firstItem.data as Record<string, unknown>[];
+    if (boxData.length > 0) {
+      const firstBox = boxData[0];
+      // 檢查是否有 x 和 y（5個數值的陣列）
+      if (firstBox && 'x' in firstBox && Array.isArray(firstBox.y)) {
+        const yArr = firstBox.y as unknown[];
+        return yArr.length === 5 && yArr.every(v => typeof v === 'number');
+      }
+    }
+  }
+
+  // 格式 2: 直接是 [{ x, y: [5個數值] }] 的陣列
+  if ('x' in firstItem && Array.isArray(firstItem.y)) {
+    const yArr = firstItem.y as unknown[];
+    return yArr.length === 5 && yArr.every(v => typeof v === 'number');
+  }
+
+  return false;
+}
+
+/**
+ * 分析盒鬚圖資料
+ */
+function analyzeBoxPlotStructure(data: unknown[]): { seriesName: string; categories: string[]; boxCount: number } {
+  const firstItem = data[0] as Record<string, unknown>;
+
+  // 格式 1: ApexCharts series 格式
+  if (firstItem.type === 'boxPlot' && Array.isArray(firstItem.data)) {
+    const boxData = firstItem.data as Record<string, unknown>[];
+    const categories = boxData.map(item => String(item.x || ''));
+    return {
+      seriesName: String(firstItem.name || 'Box Plot'),
+      categories,
+      boxCount: boxData.length,
+    };
+  }
+
+  // 格式 2: 直接的陣列
+  const categories = data.map(item => {
+    const obj = item as Record<string, unknown>;
+    return String(obj.x || '');
+  });
+  return {
+    seriesName: 'Box Plot',
+    categories,
+    boxCount: data.length,
+  };
+}
+
+/**
+ * 檢測是否為遺傳組成結構圖 (Admixture) 的 JSON
+ * 格式 1: { samples: string[], clusters: [{ name, values: number[], color? }], groups?: [...] }
+ * 格式 2: [{ name: 'Cluster X', data: number[] }] - ApexCharts series 格式
+ */
+function isAdmixtureStructure(data: unknown): boolean {
+  // 格式 1: 物件格式 { samples, clusters }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+
+    if (Array.isArray(obj.samples) && Array.isArray(obj.clusters)) {
+      const samples = obj.samples as unknown[];
+      const clusters = obj.clusters as unknown[];
+
+      if (samples.length === 0 || !samples.every(s => typeof s === 'string')) {
+        return false;
+      }
+
+      if (clusters.length === 0) {
+        return false;
+      }
+
+      return clusters.every(cluster => {
+        if (typeof cluster !== 'object' || cluster === null) return false;
+        const c = cluster as Record<string, unknown>;
+        return (
+          typeof c.name === 'string' &&
+          Array.isArray(c.values) &&
+          (c.values as unknown[]).every(v => typeof v === 'number')
+        );
+      });
+    }
+  }
+
+  // 格式 2: ApexCharts series 格式 [{ name: 'Cluster X', data: [...] }]
+  if (Array.isArray(data) && data.length >= 2) {
+    const items = data as Record<string, unknown>[];
+
+    // 檢查是否所有項目都有 name 和 data
+    const allHaveNameAndData = items.every(item => {
+      if (typeof item !== 'object' || item === null) return false;
+      return (
+        typeof item.name === 'string' &&
+        Array.isArray(item.data) &&
+        (item.data as unknown[]).length > 0 &&
+        (item.data as unknown[]).every(v => typeof v === 'number')
+      );
+    });
+
+    if (!allHaveNameAndData) return false;
+
+    // 檢查是否所有 data 長度相同
+    const firstItem = items[0];
+    if (!firstItem) return false;
+    const firstDataLength = (firstItem.data as number[]).length;
+    const allSameLength = items.every(item => (item.data as number[]).length === firstDataLength);
+
+    if (!allSameLength) return false;
+
+    // 檢查名稱是否包含 cluster 相關詞彙
+    const hasClusterName = items.some(item =>
+      String(item.name).toLowerCase().includes('cluster') ||
+      String(item.name).toLowerCase().includes('群集') ||
+      /^k\d+$/i.test(String(item.name))
+    );
+
+    // 檢查每個樣本的總和是否接近 1 或 100（表示這是比例數據）
+    let isProportionData = true;
+    for (let i = 0; i < firstDataLength; i++) {
+      const sum = items.reduce((acc, item) => acc + ((item.data as number[])[i] || 0), 0);
+      // 允許一些誤差
+      if (!(Math.abs(sum - 1) < 0.15 || Math.abs(sum - 100) < 10)) {
+        isProportionData = false;
+        break;
+      }
+    }
+
+    return hasClusterName || isProportionData;
+  }
+
+  return false;
+}
+
+/**
+ * 分析遺傳組成結構圖資料
+ */
+function analyzeAdmixtureStructure(data: unknown): {
+  sampleCount: number;
+  clusterCount: number;
+  clusterNames: string[];
+  groupCount: number;
+  isSeriesFormat: boolean;
+} {
+  // 格式 1: 物件格式 { samples, clusters }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.samples) && Array.isArray(obj.clusters)) {
+      const samples = obj.samples as string[];
+      const clusters = obj.clusters as { name: string; values: number[] }[];
+      const groups = obj.groups as { name: string }[] | undefined;
+
+      return {
+        sampleCount: samples.length,
+        clusterCount: clusters.length,
+        clusterNames: clusters.map(c => c.name),
+        groupCount: groups?.length || 0,
+        isSeriesFormat: false,
+      };
+    }
+  }
+
+  // 格式 2: ApexCharts series 格式 [{ name, data }]
+  if (Array.isArray(data)) {
+    const items = data as { name: string; data: number[] }[];
+    const firstDataLength = items[0]?.data?.length || 0;
+
+    return {
+      sampleCount: firstDataLength,
+      clusterCount: items.length,
+      clusterNames: items.map(item => item.name),
+      groupCount: 0,
+      isSeriesFormat: true,
+    };
+  }
+
+  return {
+    sampleCount: 0,
+    clusterCount: 0,
+    clusterNames: [],
+    groupCount: 0,
+    isSeriesFormat: false,
+  };
 }
 
 /**
@@ -511,6 +785,144 @@ export function useDataAnalyzer() {
     error.value = null;
 
     try {
+      // 首先檢查是否為盒鬚圖結構
+      if (isBoxPlotStructure(jsonData)) {
+        const boxInfo = analyzeBoxPlotStructure(jsonData as unknown[]);
+
+        // 創建盒鬚圖的分析結果
+        rawData.value = jsonData as Record<string, unknown>[];
+        analysis.value = {
+          rowCount: boxInfo.boxCount,
+          fieldProfiles: [
+            {
+              name: 'x',
+              type: 'categorical',
+              sampleValues: boxInfo.categories.slice(0, 5),
+              uniqueCount: boxInfo.boxCount,
+              nullCount: 0,
+            },
+            {
+              name: 'y',
+              type: 'numerical',
+              sampleValues: ['[min, Q1, median, Q3, max]'],
+              uniqueCount: boxInfo.boxCount,
+              nullCount: 0,
+            },
+          ],
+          recommendations: [
+            {
+              type: 'boxPlot',
+              title: '盒鬚圖',
+              description: `${boxInfo.seriesName}（${boxInfo.boxCount} 個類別的統計分佈）`,
+              confidence: 'high',
+              fields: ['x', 'y'],
+            },
+            {
+              type: 'bar',
+              title: '長條圖',
+              description: '以長條圖呈現各類別數據',
+              confidence: 'low',
+              fields: ['x', 'y'],
+            },
+          ],
+        };
+        return;
+      }
+
+      // 檢查是否為遺傳組成結構圖
+      if (isAdmixtureStructure(jsonData)) {
+        const admixtureInfo = analyzeAdmixtureStructure(jsonData as Record<string, unknown>);
+
+        // 創建遺傳組成結構圖的分析結果
+        rawData.value = [jsonData as Record<string, unknown>];
+        analysis.value = {
+          rowCount: admixtureInfo.sampleCount,
+          fieldProfiles: [
+            {
+              name: 'samples',
+              type: 'categorical',
+              sampleValues: [`${admixtureInfo.sampleCount} samples`],
+              uniqueCount: admixtureInfo.sampleCount,
+              nullCount: 0,
+            },
+            {
+              name: 'clusters',
+              type: 'numerical',
+              sampleValues: admixtureInfo.clusterNames.slice(0, 3),
+              uniqueCount: admixtureInfo.clusterCount,
+              nullCount: 0,
+            },
+          ],
+          recommendations: [
+            {
+              type: 'admixture',
+              title: '遺傳結構圖',
+              description: `${admixtureInfo.sampleCount} 個樣本的 ${admixtureInfo.clusterCount} 個群集組成分析`,
+              confidence: 'high',
+              fields: ['samples', 'clusters'],
+            },
+            {
+              type: 'stackedBar',
+              title: '堆疊長條圖',
+              description: '以堆疊長條圖呈現組成比例',
+              confidence: 'medium',
+              fields: ['samples', 'clusters'],
+            },
+          ],
+        };
+        return;
+      }
+
+      // 檢查是否為樹狀結構
+      if (isTreeStructure(jsonData)) {
+        const treeInfo = analyzeTreeStructure(jsonData);
+        const obj = jsonData as Record<string, unknown>;
+
+        // 獲取根節點名稱
+        const nameKey = ['name', 'label', 'id', 'title'].find((k) => typeof obj[k] === 'string');
+        const rootName = nameKey ? String(obj[nameKey]) : 'Root';
+
+        // 創建樹狀結構的分析結果
+        rawData.value = [jsonData as Record<string, unknown>];
+        analysis.value = {
+          rowCount: treeInfo.nodeCount,
+          fieldProfiles: [
+            {
+              name: 'name',
+              type: 'categorical',
+              sampleValues: [rootName],
+              uniqueCount: treeInfo.nodeCount,
+              nullCount: 0,
+            },
+            {
+              name: 'children',
+              type: 'categorical',
+              sampleValues: [`${treeInfo.leafCount} leaves`],
+              uniqueCount: treeInfo.leafCount,
+              nullCount: 0,
+            },
+          ],
+          recommendations: [
+            {
+              type: 'phylogenetic',
+              title: '系統發生樹',
+              description: `以放射狀樹狀圖呈現階層結構（${treeInfo.nodeCount} 節點，深度 ${treeInfo.depth}）`,
+              confidence: 'high',
+              fields: ['name', 'children'],
+            },
+            {
+              type: 'treemap',
+              title: '樹狀圖',
+              description: `以區塊方式呈現階層結構`,
+              confidence: 'medium',
+              fields: ['name', 'children'],
+            },
+          ],
+          isTreeStructure: true,
+        };
+        return;
+      }
+
       let data: Record<string, unknown>[];
 
       if (Array.isArray(jsonData)) {
